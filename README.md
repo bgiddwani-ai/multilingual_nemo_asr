@@ -26,6 +26,7 @@ Fine-tune NVIDIA’s **[Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/para
 * [Step 5 — Training](#step-5--training)
 * [Step 6 — Evaluation](#step-6--evaluation)
 * [Step 7 — Visualization](#step-7--visualization)
+* * [Summary](#summary)
 
 ---
 
