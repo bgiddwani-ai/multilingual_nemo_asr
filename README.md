@@ -9,7 +9,7 @@
 
 # Multilingual ASR Fine-Tuning with NVIDIA NeMo
 
-Fine-tune NVIDIA’s **[Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2)** model for multilingual Automatic Speech Recognition (ASR) using the NeMo framework. This pipeline is designed for scalable, high-performance training with tarred datasets, Lhotse-based bucketing, and custom multilingual tokenization.
+Training NVIDIA’s **[Nemotron 3.5 Multilingual ASR](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)** model by taking encoder as base and decoder/joint from scratch for multilingual Automatic Speech Recognition (ASR) using the NeMo framework. This pipeline is designed for scalable, high-performance training with tarred datasets, Lhotse-based bucketing, and custom multilingual tokenization.
 
 ---
 
@@ -26,7 +26,6 @@ Fine-tune NVIDIA’s **[Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/para
 * [Step 5 — Training](#step-5--training)
 * [Step 6 — Evaluation](#step-6--evaluation)
 * [Step 7 — Visualization](#step-7--visualization)
-* [Summary](#summary)
 
 ---
 
@@ -37,9 +36,11 @@ This pipeline enables fine-tuning of the Parakeet RNNT model on a **weighted mul
 ### Key Features
 
 * **Tarred datasets** for high-throughput, streaming-based I/O
-* **Lhotse bucketing** for efficient batching of variable-length audio
+* **Lhotse bucketing** for efficient batching of variable-length audio - makes dataloader an infinite dataloader
 * **Weighted multilingual sampling** during training
 * **Custom SentencePiece tokenizer** built from domain-specific data
+* **Code-Switching with Data changes**
+* Etc..
 
 ---
 
@@ -47,7 +48,7 @@ This pipeline enables fine-tuning of the Parakeet RNNT model on a **weighted mul
 
 * Python 3.10+
 * CUDA 12.x compatible GPU (A100 / H100 / H200 recommended)
-* `git`, `git-lfs`, Jupyter Notebook (for `.ipynb` workflows)
+* `git`, `git-lfs`
 
 ---
 
@@ -56,12 +57,12 @@ This pipeline enables fine-tuning of the Parakeet RNNT model on a **weighted mul
 Start with base environment - I prefer [NVIDIA NGC containers](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch)
 
 ```bash
-docker run --gpus all -it -v $PWD:/home --ipc=host -p 8001:8001 nvcr.io/nvidia/pytorch:25.11-py3
+docker run --gpus all -it -v $PWD:/home -v /path/to/data:/data --ipc=host -p 8001:8001 nvcr.io/nvidia/pytorch:25.11-py3
 cd /home
 git clone https://github.com/bgiddwani-ai/multilingual_nemo_asr.git
 cd multilingual_nemo_asr
-git clone https://github.com/NVIDIA-NeMo/NeMo.git
-cd NeMo
+git clone https://github.com/NVIDIA-NeMo/Speech.git
+cd Speech
 pip install '.[all]'
 pip install -r tools/speech_data_explorer/requirements.txt
 ```
@@ -90,12 +91,6 @@ Multilingual tokenizer construction
         │
         ▼
 Fine-tuned ASR model
-        │
-        ▼
-Eval ASR model
-        │
-        ▼
-Visualize the results
 ```
 
 ---
@@ -110,47 +105,57 @@ NeMo manifests are JSON files that map audio files to transcriptions:
 {"audio_filepath": "/path/to/audio1.wav", "duration": 3.45, "text": "नमस्ते दुनिया", "lang": "hi"}
 ```
 
-Use the provided script:
+Use the provided script for sample:
 
 ```bash
-python data_prep.py --lang hi --split train --data_path ./dataset/IndicVoices --dataname indicvoices
+python data_prep.py \
+    --lang hi \
+    --split valid \
+    --data_path /data/dataset/IndicVoices \
+    --dataname indicvoices \
+    --output_dir /data/dataset/indicvoices/valid/hi_audio \
+    --manifest /data/dataset/indicvoices/valid/hi_manifest.json \
+    --num_workers 8 \
+    --batch_size 8
 ```
 
 Datasets used in this pipeline:
 
-* IndicVoices (Hindi)
-* Svarah (English)
+* IndicVoices (Marathi)
+* IndiVoices (Gujarati)
 
-### Expected Directory Structure
+### Samples Expected Directory Structure
 
 ```
 dataset/
 ├── indicvoices/
 │   ├── train/
-│   │   ├── hi_audio
-│   │   └── hi_manifest.json
+│   │   ├── mr_audio
+│   │   └── mr_manifest.json
 │   └── valid/
-│       ├── hi_audio
-│       └── hi_manifest.json
-├── svarah/
-│   └── train/
-│       ├── hi_audio
-│       └── hi_manifest.json
+│   │   ├── mr_audio
+│   │   └── mr_manifest.json
+│   ├── train/
+│   │   ├── gu_audio
+│   │   └── gu_manifest.json
+│   └── valid/
+│       ├── gu_audio
+│       └── gu_manifest.json
 ```
 
 ---
 
-### 2. Convert to Tarred Dataset
+### 2. Convert to Tarred Dataset for faster data i/o
 
 Convert raw audio + manifests into sharded tar datasets:
 
 ```bash
-python NeMo/scripts/speech_recognition/convert_to_tarred_audio_dataset.py \
+python Speech/scripts/speech_recognition/convert_to_tarred_audio_dataset.py \
   --manifest_path='<path/to/manifest.json>' \
   --target_dir='<path/to/manifest.json>' \
   --num_shards=256 \ #512 or 1024
-  --max_duration=20.0 \ #Provide based on data
-  --min_duration=0.1 \ #Provide based on data
+  --max_duration=30.0 \ #Provide based on data
+  --min_duration=0.025 \ #Provide based on data
   --shuffle \
   --workers=16
 ```
@@ -158,29 +163,31 @@ python NeMo/scripts/speech_recognition/convert_to_tarred_audio_dataset.py \
 Example:
 
 ```bash
-bash tarred_svarah.sh
-bash tarred_indicvoices.sh
+bash tarred_datasets.sh
 ```
 
 ### Expected Output
 
 ```
-dataset/
+/data/dataset/
 ├── indicvoices/
 │   ├── train/
-│   │   └── hi_tarred/
+│   │   └── mr_tarred/
 │   │       ├── audio__OP_0..255_CL_.tar
 │   │       └── sharded_manifests/
 │   │           └── manifest__OP_0..255_CL_.json
 │   └── valid/
-│       ├── hi_audio
-│       └── hi_manifest.json
-├── svarah/
+│   │   ├── mr_audio
+│   │   └── mr_manifest.json
+|   │
 │   └── train/
-│       └── en_tarred/
-│           ├── audio__OP_0..255_CL_.tar
-│           └── sharded_manifests/
-│               └── manifest__OP_0..255_CL_.json
+│   │   └── gu_tarred/
+│   │       ├── audio__OP_0..255_CL_.tar
+│   │       └── sharded_manifests/
+│   │           └── manifest__OP_0..255_CL_.json
+│   └── valid/
+│       ├── gu_audio
+│       └── gu_manifest.json
 ```
 
 > **Note:** The pattern `__OP_0..255_CL_` is NeMo’s glob syntax representing shard indices from 0 to 255.
@@ -193,35 +200,36 @@ Efficient training requires optimal batching based on audio duration distributio
 
 ### Dataset Configuration
 
-Create `dataset/input_cfg.yaml`:
+Create `/data/dataset/input_cfg.yaml`:
 
 ```yaml
 - type: nemo_tarred
-  manifest_filepath: /home/asr/dataset/indicvoices/train/hi_tarred/sharded_manifests/manifest__OP_0..255_CL_.json
-  tarred_audio_filepaths: /home/asr/dataset/indicvoices/train/hi_tarred/audio__OP_0..255_CL_.tar
+  manifest_filepath: /data/dataset/indicvoices/train/mr_tarred/sharded_manifests/manifest__OP_0..255_CL_.json
+  tarred_audio_filepaths: /data/dataset/indicvoices/train/mr_tarred/audio__OP_0..255_CL_.tar
   weight: 0.8
   tags:
-    lang: hi
+    lang: mr
 
 - type: nemo_tarred
-  manifest_filepath: /home/asr/dataset/svarah/train/en_tarred/sharded_manifests/manifest__OP_0..255_CL_.json
-  tarred_audio_filepaths: /home/asr/dataset/svarah/train/en_tarred/audio__OP_0..255_CL_.tar
-  weight: 0.2
+  manifest_filepath: /data/dataset/indicvoices/train/gu_tarred/sharded_manifests/manifest__OP_0..255_CL_.json
+  tarred_audio_filepaths: /data/dataset/indicvoices/train/gu_tarred/audio__OP_0..255_CL_.tar
+  weight: 0.8
   tags:
-    lang: en
+    lang: gu
 ```
 
-### Estimate Duration Buckets
+### Estimate Duration Buckets (Optional - To improve Training Time) 
+Read more about it here: [NeMo Speech Datasets](https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/datasets.html#pushing-gpu-utilization-to-the-limits-with-bucketing-and-oomptimizer)
 
 ```bash
-python3 NeMo/scripts/speech_recognition/estimate_duration_bins.py -b 20 /home/asr/dataset/input_cfg.yaml
+python3 Speech/scripts/speech_recognition/estimate_duration_bins.py -b 20 /home/dataset/input_cfg.yaml
 ```
 
-### Optimize Batch Sizes
+### Optimize Batch Sizes (Extended - Optional)
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python3 NeMo/scripts/speech_recognition/oomptimizer.py \
---config-path /home/asr/conf/parakeet_0_6v2_tdt_bpe.yaml \
+CUDA_VISIBLE_DEVICES=0 python3 Speech/scripts/speech_recognition/oomptimizer.py \
+--config-path /home/multilingual_nemo_asr/conf/parakeet_0_6v2_tdt_bpe.yaml \
 --module-name nemo.collections.asr.models.EncDecRNNTBPEModel \
 --memory-fraction 0.9 \
 --buckets '[2.186,3.616,4.895,5.631,6.292,6.896,7.552,8.223,8.894,10.238,10.913,12.464,13.345,14.291,15.374,16.66,18.161]'
@@ -237,70 +245,61 @@ Download and extract the base model:
 
 ```bash
 cd models
-git clone https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2
-cd parakeet-tdt-0.6b-v2
-tar -xvf parakeet-tdt-0.6b-v2.nemo
+git clone https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b
+cd nemotron-3.5-asr-streaming-0.6b
+tar -xvf nemotron-3.5-asr-streaming-0.6b.nemo
 cd ..
 ```
 
 The `.nemo` archive contains:
 
 * Model weights
-* Configuration
+* Configuration (model_config.yaml) - Read through to understand LR, context size etc that was used.
 * Tokenizer
 
 ---
 
-## Step 4 — Building Tokenizer
+## Step 4 — Building Indic BPE Tokenizer
 
-### Train Hindi Tokenizer
+### Train Single Unified Tokenizer
+
+Suggestion: Collect almost equal quantity of data and use 
 
 ```bash
-python3 NeMo/scripts/tokenizers/process_asr_text_tokenizer.py \
-  --manifest dataset/indicvoices/train/hi_manifest.json \
-  --data_root models/hi_tokenizer_v256 \
-  --vocab_size 256 \
+python3 Speech/scripts/tokenizers/process_asr_text_tokenizer.py \
+  --manifest "/data/dataset/indicvoices/train/mr_manifest.json,/data/dataset/indicvoices/train/gu_manifest.json" \
+  --data_root models/mr_gu_nemotron_tokenizer \
+  --vocab_size 1024 \
   --tokenizer spe \
   --spe_type bpe \
   --spe_character_coverage 0.99
 ```
 
-### Copy English Tokenizer
-
-```bash
-mkdir -p models/en_tokenizer_tdt0_6b_v2/tokenizer_spe_bpe_v1024
-cp models/parakeet-tdt-0.6b-v2/*.vocab models/en_tokenizer_tdt0_6b_v2/tokenizer_spe_bpe_v1024/tokenizer.vocab
-cp models/parakeet-tdt-0.6b-v2/*.model models/en_tokenizer_tdt0_6b_v2/tokenizer_spe_bpe_v1024/tokenizer.model
-cp models/parakeet-tdt-0.6b-v2/*.txt models/en_tokenizer_tdt0_6b_v2/tokenizer_spe_bpe_v1024/vocab.txt
-```
-
-### Update Model Tokenizer
-
-```bash
-python3 update_tokenizer.py
-```
-
----
 
 ## Step 5 — Training
 
 Launch training using:
 
 ```bash
-speech_to_text_rnnt_bpe.py
+Speech/examples/asr/speech_to_text_finetune.py
 ```
 
 Configuration file:
 
+Inspiration: 
 ```
-conf/parakeet_0_6v2_tdt_bpe.yaml
+Speech/examples/asr/conf/fastconformer/cache_aware_streaming/fastconformer_transducer_bpe_streaming_prompt.yaml
 ```
 
-### Training Modes
+Updated for our use-case and inputs from model_config.yaml (from .nemo)
 
-* `train_manifest.sh` → Direct manifest-based training
-* `train_tarred.sh` → Tarred dataset training (high throughput)
-* `train_tarredlhotse.sh` → Tarred dataset + Lhotse bucketing (recommended)
+```
+conf/nemotron_fastconformer_transducer_bpe_streaming_prompt_mr_gu.yaml
+```
+
+### Training 
+
+* `train.sh` → Tarred dataset + Lhotse (optionally can use-bucketing for faster training)
 
 ---
 
@@ -319,7 +318,7 @@ bash eval_indicvoices.sh
 Launch the Speech Data Explorer:
 
 ```bash
-python NeMo/tools/speech_data_explorer/data_explorer.py /home/asr/results/indivoices/commotion_run1_epoch5/hi/predictions_all.json --port 8001
+python Speech/tools/speech_data_explorer/data_explorer.py /home/multilingual_nemo_asr/results/indivoices/commotion_run1_epoch5/hi/predictions_all.json --port 8001
 ```
 
 ---
