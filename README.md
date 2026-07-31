@@ -102,14 +102,14 @@ Fine-tuned ASR model
 NeMo manifests are JSON files that map audio files to transcriptions:
 
 ```json
-{"audio_filepath": "/path/to/audio1.wav", "duration": 3.45, "text": "नमस्ते दुनिया", "lang": "hi"}
+{"audio_filepath": "/path/to/audio1.wav", "duration": 3.45, "text": "नमस्कार जग", "lang": "hi"}
 ```
 
 Use the provided script for sample:
 
 ```bash
 python data_prep.py \
-    --lang hi \
+    --lang mr \
     --split valid \
     --data_path /data/dataset/IndicVoices \
     --dataname indicvoices \
