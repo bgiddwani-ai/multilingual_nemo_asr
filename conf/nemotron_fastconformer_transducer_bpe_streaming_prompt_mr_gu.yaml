@@ -23,9 +23,9 @@ model:
     num_prompts: 6
     norm: None
     prompt_dictionary: {
-    'mr': 0,
-    'gu': 1,
-    'auto': 2
+    'mr': 41,
+    'gu': 42,
+    'auto': 101,
     }
 
   #Update (#PATH)
