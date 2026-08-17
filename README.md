@@ -308,7 +308,7 @@ conf/nemotron_fastconformer_transducer_bpe_streaming_prompt_mr_gu.yaml
 Evaluate model performance (WER/CER):
 
 ```bash
-bash eval_indicvoices.sh
+bash eval.sh
 ```
 
 ---
