@@ -275,6 +275,11 @@ python3 Speech/scripts/tokenizers/process_asr_text_tokenizer.py \
   --spe_character_coverage 0.99
 ```
 
+Update nemotron model with new tokenizer
+
+```bash
+python3 update_tokenizer.py
+```
 
 ## Step 5 — Training
 
